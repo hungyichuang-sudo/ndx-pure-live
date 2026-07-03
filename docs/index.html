@@ -54,8 +54,29 @@ const bar1=allM.map(m=>m.net1*100), bar2=allM.map(m=>m.net2*100), mlab=allM.map(
 const trows=allM.map(m=>{const ext=!S.trades.includes(m);
  const h=m.holdings.map((t,i)=>(m.cluster[i]?'▲':'')+t).join(' ');
  return `<tr${ext?' class="extrow"':''}><td>${m.month}${m.naked?'⚠':''}${ext?' ⟲':''}</td><td>${h}</td><td>${F(m.net1)}</td><td>${F(m.net2)}</td></tr>`}).join('');
+// ---- 系統狀態(瀏覽器端即時計算,後端掛掉也會變紅) ----
+const u=L.universe||{};
+function fresh(asof){try{const t=new Date(asof.replace(' UTC','').replace(' ','T')+':00Z');const now=new Date();const hh=(now-t)/36e5;let wk=0;for(let d=new Date(t);d<now&&wk<20;d.setUTCDate(d.getUTCDate()+1)){const w=d.getUTCDay();if(w===0||w===6)wk++;}const allow=32+24*wk;return{h:hh,allow,lv:hh<=allow?'g':(hh<=allow+24?'a':'r')};}catch(e){return{h:0,allow:0,lv:'a'}}}
+const fr=fresh(L.as_of);
+const rel=fr.h<1?'不到 1 小時前':(fr.h<48?Math.round(fr.h)+' 小時前':(fr.h/24).toFixed(1)+' 天前');
+const DOT={g:'var(--grn)',a:'var(--amb)',r:'var(--red)'};
+const dot=lv=>`<span style="color:${DOT[lv]};font-size:15px">●</span>`;
+const uLv=u.status==='ok'?'g':'r';
+const uTxt=u.status==='ok'?`本次真的抓到(${u.source})`:`抓取失敗,沿用 ${u.last_success||'?'} 的快取${u.fetch_error?'<br>錯誤: '+u.fetch_error:''}`;
+const logN=(u.log||[]).length, lastLog=logN?u.log[logN-1]:null;
+const logTxt=logN?`最近 ${lastLog.date}: ${(lastLog.added||[]).map(x=>'+'+x).concat((lastLog.removed||[]).map(x=>'\u2212'+x)).join(' ')}`:`自 ${u.baseline||u.checked||'部署'} 以來無變動`;
+const exN=(L.excluded_tickers||[]).length;
+const ghLink=(()=>{try{const o=location.hostname.split('.')[0],r=location.pathname.split('/').filter(Boolean)[0];return(o&&r)?`https://github.com/${o}/${r}/actions`:null}catch(e){return null}})();
+const statusHtml=`<div class="pan"><h3>系統狀態(真實更新狀態 —— 後端掛了這裡自己變紅,不會裝沒事)</h3>
+<div class="grid g4">
+<div class="c"><div class="k">資料更新 ${dot(fr.lv)}</div><div class="v" style="font-size:15px">${rel}</div><div class="n">上次成功: ${L.as_of}<br>價格至 ${C.price_date} · 排程:每交易日 22:20 UTC(台北 06:20)<br>規則:>32h 轉黃(跨週末每日+24h 寬限),再 +24h 轉紅 —— 由你的瀏覽器當場計算</div></div>
+<div class="c"><div class="k">NDX-100 成分來源 ${dot(uLv)}</div><div class="v" style="font-size:15px">${u.count||'?'} 檔</div><div class="n">${uTxt}<br>本次核對: ${u.checked||'?'} · 護欄:95~110 檔才接受</div></div>
+<div class="c"><div class="k">成分變動記錄(PIT) ${dot('g')}</div><div class="v" style="font-size:15px">${logN?logN+' 次':'無變動'}</div><div class="n">${logTxt}<br>變動自動記日期入檔,舊決策永不重算</div></div>
+<div class="c"><div class="k">資料完整性 ${dot(exN?'a':'g')}</div><div class="v" style="font-size:15px">${exN?exN+' 檔缺價':'全數有價格'}</div><div class="n">${exN?('缺: '+L.excluded_tickers.join(' ')):'成分股日線資料齊全(≥151 根)'}<br>接縫: 2026-06 前=Sharadar / 之後=yfinance</div></div>
+</div>${ghLink?`<div class="sub" style="margin-top:8px">▸ <a href="${ghLink}" style="color:var(--blu)">查看每日自動執行記錄(GitHub Actions)↗</a></div>`:''}</div>`;
 document.getElementById('app').innerHTML=`
 ${curAlert}
+${statusHtml}
 <div class="pan"><h3>當前狀態(每交易日自動更新)</h3>
 <div class="grid g4">
 <div class="c"><div class="k">本月實際持倉(${C.holdings_formation||'—'} 形成)</div><div class="v" style="font-size:15px">${C.holdings?C.holdings.join(' / '):'—'}</div><div class="n">各 1/3 · 下次換倉=本月最後交易日收盤</div></div>

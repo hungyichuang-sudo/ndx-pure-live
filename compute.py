@@ -42,7 +42,7 @@ def fetch_constituents(cache):
     記憶體/儲存(WDC/STX/SNDK等)維持 HARD_SEMI 手動名單 —— ICB/GICS 把 AAPL
     和硬碟廠放同一子分類, 用 'storage' 關鍵字會誤標蘋果, 所以不用。"""
     import requests
-    tick, auto_cl, src = None, set(), None
+    tick, auto_cl, src, err, status = None, set(), None, [], "ok"
     try:
         from bs4 import BeautifulSoup
         html = requests.get("https://en.wikipedia.org/wiki/Nasdaq-100",
@@ -75,6 +75,7 @@ def fetch_constituents(cache):
                 src = "wikipedia"
                 break
     except Exception as e:
+        err.append(f"wiki:{type(e).__name__}")
         print(f"[WARN] Wikipedia 成分抓取失敗: {type(e).__name__} {str(e)[:120]}", file=sys.stderr)
     if tick is None and os.environ.get("FMP_API_KEY"):
         try:
@@ -86,17 +87,19 @@ def fetch_constituents(cache):
                            if "semiconductor" in str(d.get("subSector", "")).lower()}
                 src = "fmp"
         except Exception as e:
+            err.append(f"fmp:{type(e).__name__}")
             print(f"[WARN] FMP 成分備援失敗: {type(e).__name__} {str(e)[:120]}", file=sys.stderr)
     if tick is None:
         tick = cache.get("tickers") or list(FALLBACK_NDX)
         auto_cl = set(cache.get("cluster_auto") or [])
-        src = (cache.get("source", "hardcoded")) + "(快取沿用)"
-        print(f"[WARN] 兩源皆失敗, 沿用 {src} {len(tick)} 檔", file=sys.stderr)
+        src = cache.get("source") or "hardcoded"
+        status = "cache"
+        print(f"[WARN] 兩源皆失敗, 沿用快取({src}) {len(tick)} 檔", file=sys.stderr)
     changed = None
     old = set(cache.get("tickers") or [])
     if old and set(tick) != old:
         changed = {"added": sorted(set(tick) - old), "removed": sorted(old - set(tick))}
-    return tick, auto_cl, src, changed
+    return tick, auto_cl, src, status, ("; ".join(err) or None), changed
 
 
 def load_json(p, default):
@@ -222,7 +225,7 @@ def main():
     seed = json.load(open(DOCS / "seed.json"))
     prev = load_json(DOCS / "live.json", {})
     uni_prev = prev.get("universe", {})
-    NDX, auto_cl, uni_src, uni_changed = fetch_constituents(uni_prev)
+    NDX, auto_cl, uni_src, uni_status, uni_err, uni_changed = fetch_constituents(uni_prev)
     SEMI = set(HARD_SEMI) | auto_cl
     uni_log = list(uni_prev.get("log", []))
     if uni_changed:
@@ -333,13 +336,17 @@ def main():
             "extension": {"decisions": decisions, "months": months,
                           "curve": {"dates": ext_dates, "e1": ext_e1, "e2": ext_e2}},
             "universe": {"count": len(NDX), "source": uni_src,
+                         "status": uni_status, "fetch_error": uni_err,
+                         "last_success": (dt.date.today().isoformat() if uni_status == "ok"
+                                          else uni_prev.get("last_success")),
+                         "baseline": uni_prev.get("baseline") or dt.date.today().isoformat(),
                          "checked": dt.date.today().isoformat(),
                          "tickers": NDX, "cluster_auto": sorted(auto_cl),
                          "hard_semi": sorted(HARD_SEMI), "log": uni_log},
             "excluded_tickers": excluded,
             "seam": "2026-06 以前=Sharadar PIT(凍結, 含下市股); 2026-07 起=yfinance 即時口徑(決策即時記錄=PIT)"}
     json.dump(live, open(DOCS / "live.json", "w"), ensure_ascii=False)
-    print(f"[OK] 成分 {len(NDX)}檔({uni_src}) 自動叢集 {len(auto_cl)}檔 | 變動 {uni_changed or '無'}")
+    print(f"[OK] 成分 {len(NDX)}檔({uni_src}/{uni_status}) 自動叢集 {len(auto_cl)}檔 | 變動 {uni_changed or '無'}")
     print(f"[OK] live.json | 價格日 {current['price_date']} | 持倉 {current['holdings']}"
           f" MTD2× {current['mtd2']*100:+.2f}% | 今日Top3 {top3_now} 叢集 {current['top3_cluster']}/3"
           f" | CAGR2× {st['cagr2']*100:.1f}% MDD2× {st['mdd2']*100:.1f}% | MC腰斬 {mc['p_halve']*100:.1f}%")
