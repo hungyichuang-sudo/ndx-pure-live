@@ -85,11 +85,16 @@ ${statusHtml}
 <div class="c"><div class="k">裸賭注月數(歷史累計)</div><div class="v ${st.naked_months>5?'r':'a'}">${st.naked_months}</div><div class="n">3 檔全為半導體/記憶體的月份</div></div></div>
 <h3>今日 radj-150 排名前 20</h3><div class="scroll"><table><thead><tr><th>#</th><th>Ticker</th><th>radj</th><th>150d 報酬</th></tr></thead><tbody>${rank}</tbody></table></div></div>
 
+<div class="pan"><h3>本月持倉即時 K 線(符號自動跟隨持倉)</h3>
+<div id="tvbtns" style="margin-bottom:6px"></div>
+<div id="tvbox" style="height:430px;border:1px solid var(--bd);border-radius:8px;overflow:hidden"></div>
+<div class="sub">TradingView 免費源:盤中即時或最多延遲 ~15 分鐘(依其供應)。日 K 預設,圖內可自行切分時/週線。持倉換月後重新整理本頁,按鈕自動換成新持倉。</div></div>
+
 <h2>八項總結區塊</h2>
 <div class="pan"><h3>① 資金曲線(log;綠=1×,黃=2×;紅點=歷史谷底)</h3>
 <button class="btn on" id="b10">近10年</button><button class="btn" id="ball">全期(2013→)</button>
 <div class="box"><canvas id="eq"></canvas></div>
-<div class="sub">2026-06 以前=Sharadar 凍結週取樣;之後=即時日頻。谷底統計以日頻計。</div></div>
+<div class="sub" id="eqsub"></div></div>
 
 <div class="pan"><h3>② 回測方式 / ③ 實盤操作</h3>
 <div style="font-size:12.5px">
@@ -126,18 +131,29 @@ ${statusHtml}
 <div class="foot">凍結歷史來源:Sharadar PIT 回測(pure2x 戰役,VPS 三重驗證,2026-07-03)。即時延伸:yfinance,決策即時記錄(不可能偷看未來=PIT)。成分清單每交易日自動核對(Wikipedia 主源/FMP 備援/失敗沿用快取), 變動記日期入檔;半導體叢集自動判定+記憶體/儲存手動名單。本頁為研究監控工具,非投資建議。</div>`;
 // ---- charts ----
 const GRID='#1a212c',DIM='#5a6573';
+const IX={mode:'index',intersect:false};
+const TT=fmt=>({backgroundColor:'#11161f',borderColor:'#2a3546',borderWidth:1,titleColor:'#4aa8f5',bodyColor:'#e6edf6',padding:10,callbacks:{label:c=>' '+(c.dataset.label||'')+': '+fmt(c.parsed.y)}});
+const XH={id:'xh',afterDatasetsDraw(c){const t=c.tooltip;if(!t||!t.getActiveElements||!t.getActiveElements().length)return;const x=t.getActiveElements()[0].element.x;const ctx=c.ctx;ctx.save();ctx.strokeStyle='rgba(126,138,154,.45)';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x,c.chartArea.top);ctx.lineTo(x,c.chartArea.bottom);ctx.stroke();ctx.restore();}};
 let eqChart, from10=true;
 function drawEq(){
-  const cut = from10? labels.findIndex(d=>d>= new Date(Date.now()-315576e5).toISOString().slice(0,10)) : 0;
+  const cutIdx = labels.findIndex(d=>d>= new Date(Date.now()-3652.5*864e5).toISOString().slice(0,10));
+  const cut = from10? Math.max(cutIdx,0) : 0;
   const lb=labels.slice(cut);
+  const b1=from10&&d1[cut]?d1[cut]:1, b2=from10&&d2[cut]?d2[cut]:1;
+  const a1=d1.slice(cut).map(v=>v/b1), a2=d2.slice(cut).map(v=>v/b2);
+  const sub=document.getElementById('eqsub');
+  if(sub) sub.innerHTML = from10
+   ? `近10年視窗(每日自動前滾)·起點 ${lb[0]} 資金重設為 1:至今 1× <b>${a1[a1.length-1].toFixed(1)}×</b> / 2× <b>${a2[a2.length-1].toFixed(1)}×</b> · 2026-06 前=凍結週取樣,之後=即時日頻;紅點=歷史谷底`
+   : `全期(2013→,起點=1):終值 1× <b>${a1[a1.length-1].toFixed(0)}×</b> / 2× <b>${a2[a2.length-1].toFixed(0)}×</b> · 凍結週取樣+即時日頻;紅點=歷史谷底`;
   if(eqChart) eqChart.destroy();
   eqChart=new Chart(document.getElementById('eq'),{type:'line',data:{labels:lb,datasets:[
-   {label:'1×',data:d1.slice(cut),borderColor:'#22d3a8',borderWidth:1.8,pointRadius:0,tension:.1},
-   {label:'2×(@6.5%)',data:d2.slice(cut),borderColor:'#f5b94a',borderWidth:1.8,pointRadius:0,tension:.1}]},
-   options:{responsive:true,maintainAspectRatio:false,animation:false,
-    plugins:{legend:{labels:{color:'#d7dee8',font:{size:11}}}},
+   {label:'1×',data:a1,borderColor:'#22d3a8',borderWidth:1.8,pointRadius:0,tension:.1},
+   {label:'2×(@6.5%)',data:a2,borderColor:'#f5b94a',borderWidth:1.8,pointRadius:0,tension:.1}]},
+   options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:IX,
+    plugins:{legend:{labels:{color:'#d7dee8',font:{size:11}}},
+     tooltip:TT(v=>v>=100?v.toFixed(0)+'×':v.toFixed(2)+'×')},
     scales:{y:{type:'logarithmic',grid:{color:GRID},ticks:{color:DIM}},x:{grid:{display:false},ticks:{color:DIM,maxTicksLimit:10}}}},
-   plugins:[{id:'tr',afterDatasetsDraw(c){const ctx=c.ctx;troughs.forEach(td=>{const i=lb.indexOf(td);if(i<0)return;
+   plugins:[XH,{id:'tr',afterDatasetsDraw(c){const ctx=c.ctx;troughs.forEach(td=>{const i=lb.indexOf(td);if(i<0)return;
      const m=c.getDatasetMeta(1).data[i];if(!m)return;ctx.beginPath();ctx.arc(m.x,m.y,4,0,7);ctx.fillStyle='#ef4455';ctx.fill();});}}]});
 }
 drawEq();
@@ -148,15 +164,34 @@ let barChart,mode2=true;
 function drawBar(){const d=mode2?bar2:bar1;if(barChart)barChart.destroy();
  barChart=new Chart(document.getElementById('bar'),{type:'bar',data:{labels:mlab,datasets:[{data:d,
   backgroundColor:d.map(v=>v<0?'#ef4455':'rgba(34,211,168,.75)')}]},
-  options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:IX,plugins:{legend:{display:false},tooltip:TT(v=>(v>=0?'+':'')+v.toFixed(2)+'%')},
   scales:{y:{grid:{color:GRID},ticks:{color:DIM,callback:v=>v+'%'},title:{display:true,text:'%(已×100)',color:DIM}},
-   x:{grid:{display:false},ticks:{color:DIM,maxTicksLimit:14}}}}});}
+   x:{grid:{display:false},ticks:{color:DIM,maxTicksLimit:14}}}},plugins:[XH]});}
 drawBar();
 document.getElementById('m2').onclick=()=>{mode2=true;tog('m2','m1');drawBar()};
 document.getElementById('m1').onclick=()=>{mode2=false;tog('m1','m2');drawBar()};
 new Chart(document.getElementById('fan'),{type:'line',data:{labels:[...Array(37).keys()],datasets:
  [['p95','#4aa8f5'],['p75','#22d3a8'],['p50','#ffffff'],['p25','#f5b94a'],['p5','#ef4455']].map(([p,col])=>({label:p,data:MC.fan[p.slice(1)],borderColor:col,borderWidth:p==='p50'?2.2:1.3,pointRadius:0}))},
- options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:'#d7dee8',font:{size:10.5}}}},
- scales:{y:{type:'logarithmic',grid:{color:GRID},ticks:{color:DIM,callback:v=>v+'×'}},x:{grid:{display:false},ticks:{color:DIM},title:{display:true,text:'月',color:DIM}}}}});
+ options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:IX,plugins:{legend:{labels:{color:'#d7dee8',font:{size:10.5}}},tooltip:Object.assign(TT(v=>v.toFixed(2)+'×'),{callbacks:{title:it=>'第 '+it[0].label+' 個月',label:c=>' '+c.dataset.label+': '+c.parsed.y.toFixed(2)+'×'}})},
+ scales:{y:{type:'logarithmic',grid:{color:GRID},ticks:{color:DIM,callback:v=>v+'×'}},x:{grid:{display:false},ticks:{color:DIM},title:{display:true,text:'月',color:DIM}}}},plugins:[XH]});
+// ---- TradingView 即時K線(符號=本月持倉) ----
+const tvSyms=(C.holdings&&C.holdings.length?C.holdings:C.top3_now)||[];
+function tvLoad(sym){
+  const box=document.getElementById('tvbox'); box.innerHTML='';
+  document.querySelectorAll('#tvbtns .btn').forEach(b=>b.classList.toggle('on',b.dataset.s===sym));
+  if(typeof TradingView==='undefined'){
+    box.innerHTML='<div style="padding:24px;color:var(--dim)">TradingView 元件載入失敗(可能被網路環境擋)。直接開圖: '+
+      tvSyms.map(t=>`<a style="color:var(--blu)" target="_blank" href="https://www.tradingview.com/chart/?symbol=NASDAQ:${t}">${t}</a>`).join(' · ')+'</div>';
+    return;}
+  new TradingView.widget({container_id:'tvbox',symbol:'NASDAQ:'+sym,interval:'D',theme:'dark',style:'1',
+    locale:'zh_TW',timezone:'Asia/Taipei',autosize:true,hide_side_toolbar:true,allow_symbol_change:false,withdateranges:true});
+}
+if(tvSyms.length){
+  document.getElementById('tvbtns').innerHTML=tvSyms.map((t,i)=>`<button class="btn${i===0?' on':''}" data-s="${t}">${t}</button>`).join('');
+  document.querySelectorAll('#tvbtns .btn').forEach(b=>b.onclick=()=>tvLoad(b.dataset.s));
+  const sc=document.createElement('script'); sc.src='https://s3.tradingview.com/tv.js';
+  sc.onload=()=>tvLoad(tvSyms[0]); sc.onerror=()=>tvLoad(tvSyms[0]);
+  document.head.appendChild(sc);
+}
 }).catch(e=>{document.getElementById('sub').textContent='資料載入失敗:'+e;});
 </script></body></html>
