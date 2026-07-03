@@ -47,6 +47,7 @@ const curAlert = (C.holdings_naked || C.naked_now)
 const rank=C.rank20.map((r,i)=>`<tr><td>${i+1}</td><td>${r.t}${r.cluster?'<span class="tag c">叢集</span>':''}</td><td>${r.radj}</td><td>${r.ret150}%</td></tr>`).join('');
 // ---- 曲線資料(凍結週頻 + 延伸日頻) ----
 const labels=S.labels.concat(EXT.curve.dates), d1=S.c1.concat(EXT.curve.e1), d2=S.c2.concat(EXT.curve.e2);
+if(S.labels[S.labels.length-1]==='2026-06-25')labels[S.labels.length-1]='2026-06-30'; // 凍結段末點實為6/30終值(VPS週取樣標籤偏移3個交易日),校正顯示;統計不受影響
 const troughs=['2025-04-04','2020-03-18']; if(st.mdd2_span.startsWith('live')) troughs.push(st.mdd2_span.split('→')[1]);
 // ---- 月度 bar / 交易表 ----
 const allM=S.trades.concat(EXT.months);
@@ -100,6 +101,24 @@ ${statusHtml}
 <div style="font-size:12.5px">
 <b>回測:</b>point-in-time NDX-100(依時序滾動,含下市股,無存活偏誤)→ 每檔 radj-150 =(150 交易日報酬 ÷ 同期年化波動)→ 由高到低 → <b>不套任何叢集限制</b> → Top-3 等權 → 月底收盤換 diff → 20bps 往返成本×換手率。2× = 月底重設兩倍、IBKR 融資 6.5%/yr 假設(僅借款計息)。<br>
 <b>實盤 SOP:</b>每月最後交易日收盤前:看本頁「今日排名 Top-3」→ 與現持倉比對 → 只換差異部位 → 各 1/3(2× 則各 2/3 本金,月底調回 2.0×)。<b>融資只用 IBKR 保證金,勿用幣安永續</b>(funding 對全倉收,2× ≈ −26pp/年名目)。</div></div>
+
+<div class="pan"><h3>radj-150 訊號:具體公式與白話拆解</h3>
+<div style="font-size:12.5px;line-height:1.95">
+<b>一句話:</b>「過去 150 個交易日漲了多少」除以「這段期間抖得多兇」— 同樣漲 50%,穩穩爬上去的分數高,暴漲暴跌爬上去的分數低。<br><br>
+<b>公式:</b><span style="font-family:'IBM Plex Mono';color:var(--grn);font-size:14px"> radj-150 = R₁₅₀ ÷ σ_ann </span><br>
+<b>分子 R₁₅₀(漲多少):</b><span style="font-family:'IBM Plex Mono'">R₁₅₀ = P<sub>今日收盤</sub> ÷ P<sub>150個交易日前收盤</sub> − 1</span><br>
+用<b>還原收盤價</b>(除息/分割已調整);150 個「交易日」≈ 7 個月;skip=0(算到最近一根收盤,不跳過近月)。<br>
+<b>分母 σ_ann(抖多兇),三步:</b>① 取這 150 天每天的日報酬 r<sub>t</sub>=P<sub>t</sub>/P<sub>t−1</sub>−1 → ② 算標準差 σ<sub>daily</sub>(衡量數字散得多開:天天±0.5% 的小、一天+8%一天−6% 的大)→ ③ 年化 σ_ann = σ<sub>daily</sub>×√252(一年約 252 個交易日;乘√而非直接乘,因為每天的震盪會部分互相抵消)。<br><br>
+<b>為什麼要除這一下(訊號的靈魂):</b>
+<table style="max-width:520px"><thead><tr><th></th><th>A 股</th><th>B 股</th></tr></thead><tbody>
+<tr><td>150 日報酬</td><td>+48%</td><td>+60%</td></tr>
+<tr><td>年化波動</td><td>30%</td><td>75%</td></tr>
+<tr><td><b>radj</b></td><td class="g" style="color:var(--grn)"><b>1.60 ← 第1名</b></td><td>0.80 → 第2名</td></tr></tbody></table>
+B 漲更多,但那 60% 是坐雲霄飛車換來的 — 波動大的股票,過去的暴漲更可能是雜訊/泡沫,回吐也兇。除以波動後「穩穩的強」排到前面。<b>分母就是內建風控,在選股那一刻生效,不是事後補的。</b><br><br>
+<b>從公式到下單:</b>每月最後交易日收盤 → 當時 point-in-time 成分股各算一個 radj-150(不足 151 根日線者跳過)→ 由高到低排 → 取前 3(本頁為無 cap 純訊號版;GOOGL/GOOG 同發行人去重)→ 各 1/3 資金 → 只交易與上月的差異部位。<br>
+<b>三個實作坑:</b>① 價格沒還原 → 配息股被系統性低估(本頁用 yfinance auto_adjust);② 150「日曆天」≠150「交易日」(前者只有約 103 根,算出來是另一個訊號);③ σ=0 或資料不足 → 該股跳過,避免除以零。<br>
+<b>誠實註記:</b>分子分母同用 150 天窗是<b>設計上的簡潔選擇</b>(一個參數少一個可過擬合的旋鈕),不是數學上證明最優;150 這個數字由網格掃出,但經 13/14 年自適應回測驗證各年都選回它附近,非幸運數字。
+</div></div>
 
 <div class="pan"><h3>④⑤ 全期績效(${st.years} 年,日頻 MDD)</h3>
 <div class="grid g4">
