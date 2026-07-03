@@ -1,0 +1,141 @@
+<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>純 radj-150 Top-3 · 即時儀表板</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0a0e14;--pan:#11161f;--pan2:#161d28;--bd:#1f2937;--grn:#22d3a8;--red:#ef4455;--amb:#f5b94a;--blu:#4aa8f5;--txt:#d7dee8;--dim:#7e8a9a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:'IBM Plex Mono','Noto Sans TC',monospace;padding:22px 14px;max-width:1100px;margin:0 auto;line-height:1.65}
+h1{font-size:20px;color:#fff}h2{font-size:15px;color:#fff;margin:20px 0 10px;padding-left:9px;border-left:3px solid var(--grn)}
+h3{font-size:13px;color:var(--blu);margin:10px 0 6px}
+.sub{color:var(--dim);font-size:11.5px;margin-top:4px}
+.pan{background:var(--pan);border:1px solid var(--bd);border-radius:10px;padding:14px 16px;margin:12px 0}
+.grid{display:grid;gap:10px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:760px){.g4,.g3{grid-template-columns:repeat(2,1fr)}}
+.c{background:var(--pan2);border:1px solid var(--bd);border-radius:8px;padding:10px 12px}
+.c .k{font-size:10.5px;color:var(--dim)}.c .v{font-size:19px;font-weight:700;color:#fff;margin-top:2px}
+.v.g{color:var(--grn)}.v.r{color:var(--red)}.v.a{color:var(--amb)}.c .n{font-size:10px;color:var(--dim);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+th,td{border:1px solid var(--bd);padding:6px 9px;text-align:left}th{background:var(--pan2);color:var(--blu)}
+.alert{border-radius:9px;padding:11px 14px;margin:12px 0;font-weight:600;font-size:13px}
+.alert.red{background:#160d10;border:1px solid var(--red);color:var(--red)}
+.alert.grn{background:#0b1512;border:1px solid var(--grn);color:var(--grn)}
+.redline{background:#160d10;border-left:3px solid var(--red);border-radius:6px;padding:9px 12px;margin:7px 0;font-size:12px}
+.tag{display:inline-block;padding:0 6px;border-radius:4px;font-size:10.5px;margin-left:5px}
+.tag.c{background:#3a1a1f;color:var(--red)}
+.box{position:relative;height:340px;margin-top:8px}.box.sm{height:260px}
+.btn{background:var(--pan2);border:1px solid var(--bd);color:var(--txt);border-radius:6px;padding:3px 12px;font-size:11.5px;cursor:pointer;font-family:inherit;margin-right:6px}
+.btn.on{border-color:var(--grn);color:var(--grn)}
+.scroll{max-height:380px;overflow-y:auto}
+.extrow td{background:#0e1a16}
+b{color:#fff}.foot{color:var(--dim);font-size:10.5px;margin-top:22px;border-top:1px solid var(--bd);padding-top:10px}
+</style></head><body>
+<h1>◢ 純 radj-150 Top-3 · 即時儀表板</h1>
+<div class="sub" id="sub">載入中…</div>
+<div id="app"><div class="pan">載入中… 若一直卡住:本頁需經 HTTP 開啟(GitHub Pages 或 <code>python3 -m http.server</code>),直接雙擊檔案會因瀏覽器安全限制讀不到資料。</div></div>
+<script>
+const F=n=>(n>=0?'+':'')+(n*100).toFixed(2)+'%';
+const Fp=n=>(n*100).toFixed(1)+'%';
+Promise.all([fetch('seed.json?_='+Date.now()).then(r=>r.json()),fetch('live.json?_='+Date.now()).then(r=>r.json())]).then(([S,L])=>{
+const st=L.stats, C=L.current, MC=L.mc, EXT=L.extension;
+document.getElementById('sub').textContent='point-in-time NDX-100 · 無cap · 月底換倉 · 更新 '+L.as_of+' · 價格至 '+C.price_date+(L.universe?' · 成分 '+L.universe.count+'檔('+L.universe.source+' '+L.universe.checked+')':'')+' · '+L.seam;
+// ---- 當前區塊 ----
+const curAlert = (C.holdings_naked || C.naked_now)
+ ? `<div class="alert red">⚠ 裸賭注進行中:${C.holdings_naked?('本月持倉 '+C.holdings.join('/')+' 三檔全為半導體/記憶體叢集'):''}${C.naked_now?' · 今日排名 Top-3 亦全叢集':''} — 100% 資金押同一週期(effective-N=1)。這正是無cap 版的固有風險。</div>`
+ : `<div class="alert grn">當前 Top-3 叢集 ${C.top3_cluster}/3,未觸發全叢集裸賭注。</div>`;
+const rank=C.rank20.map((r,i)=>`<tr><td>${i+1}</td><td>${r.t}${r.cluster?'<span class="tag c">叢集</span>':''}</td><td>${r.radj}</td><td>${r.ret150}%</td></tr>`).join('');
+// ---- 曲線資料(凍結週頻 + 延伸日頻) ----
+const labels=S.labels.concat(EXT.curve.dates), d1=S.c1.concat(EXT.curve.e1), d2=S.c2.concat(EXT.curve.e2);
+const troughs=['2025-04-04','2020-03-18']; if(st.mdd2_span.startsWith('live')) troughs.push(st.mdd2_span.split('→')[1]);
+// ---- 月度 bar / 交易表 ----
+const allM=S.trades.concat(EXT.months);
+const bar1=allM.map(m=>m.net1*100), bar2=allM.map(m=>m.net2*100), mlab=allM.map(m=>m.month);
+const trows=allM.map(m=>{const ext=!S.trades.includes(m);
+ const h=m.holdings.map((t,i)=>(m.cluster[i]?'▲':'')+t).join(' ');
+ return `<tr${ext?' class="extrow"':''}><td>${m.month}${m.naked?'⚠':''}${ext?' ⟲':''}</td><td>${h}</td><td>${F(m.net1)}</td><td>${F(m.net2)}</td></tr>`}).join('');
+document.getElementById('app').innerHTML=`
+${curAlert}
+<div class="pan"><h3>當前狀態(每交易日自動更新)</h3>
+<div class="grid g4">
+<div class="c"><div class="k">本月實際持倉(${C.holdings_formation||'—'} 形成)</div><div class="v" style="font-size:15px">${C.holdings?C.holdings.join(' / '):'—'}</div><div class="n">各 1/3 · 下次換倉=本月最後交易日收盤</div></div>
+<div class="c"><div class="k">本月至今 1× / 2×</div><div class="v ${C.mtd2>=0?'g':'r'}" style="font-size:16px">${F(C.mtd1)} / ${F(C.mtd2)}</div><div class="n">進行中,未扣本月換倉成本</div></div>
+<div class="c"><div class="k">今日排名 Top-3(若今天是月底就買這三檔)</div><div class="v" style="font-size:15px">${C.top3_now.join(' / ')}</div><div class="n">叢集 ${C.top3_cluster}/3</div></div>
+<div class="c"><div class="k">裸賭注月數(歷史累計)</div><div class="v ${st.naked_months>5?'r':'a'}">${st.naked_months}</div><div class="n">3 檔全為半導體/記憶體的月份</div></div></div>
+<h3>今日 radj-150 排名前 20</h3><div class="scroll"><table><thead><tr><th>#</th><th>Ticker</th><th>radj</th><th>150d 報酬</th></tr></thead><tbody>${rank}</tbody></table></div></div>
+
+<h2>八項總結區塊</h2>
+<div class="pan"><h3>① 資金曲線(log;綠=1×,黃=2×;紅點=歷史谷底)</h3>
+<button class="btn on" id="b10">近10年</button><button class="btn" id="ball">全期(2013→)</button>
+<div class="box"><canvas id="eq"></canvas></div>
+<div class="sub">2026-06 以前=Sharadar 凍結週取樣;之後=即時日頻。谷底統計以日頻計。</div></div>
+
+<div class="pan"><h3>② 回測方式 / ③ 實盤操作</h3>
+<div style="font-size:12.5px">
+<b>回測:</b>point-in-time NDX-100(依時序滾動,含下市股,無存活偏誤)→ 每檔 radj-150 =(150 交易日報酬 ÷ 同期年化波動)→ 由高到低 → <b>不套任何叢集限制</b> → Top-3 等權 → 月底收盤換 diff → 20bps 往返成本×換手率。2× = 月底重設兩倍、IBKR 融資 6.5%/yr 假設(僅借款計息)。<br>
+<b>實盤 SOP:</b>每月最後交易日收盤前:看本頁「今日排名 Top-3」→ 與現持倉比對 → 只換差異部位 → 各 1/3(2× 則各 2/3 本金,月底調回 2.0×)。<b>融資只用 IBKR 保證金,勿用幣安永續</b>(funding 對全倉收,2× ≈ −26pp/年名目)。</div></div>
+
+<div class="pan"><h3>④⑤ 全期績效(${st.years} 年,日頻 MDD)</h3>
+<div class="grid g4">
+<div class="c"><div class="k">1× CAGR</div><div class="v g">${Fp(st.cagr1)}</div><div class="n">終值 ${st.terminal1_now}×</div></div>
+<div class="c"><div class="k">1× 日頻 MDD</div><div class="v r">${Fp(st.mdd1)}</div><div class="n">${S.stats.mdd1_span}</div></div>
+<div class="c"><div class="k">2× CAGR(@6.5%)</div><div class="v g">${Fp(st.cagr2)}</div><div class="n">終值 ${st.terminal2_now}×</div></div>
+<div class="c"><div class="k">2× 日頻 MDD</div><div class="v r">${Fp(st.mdd2)}</div><div class="n">${st.mdd2_span} · 回本需 +${((1/(1+st.mdd2)-1)*100).toFixed(0)}%</div></div></div></div>
+
+<div class="pan"><h3>⑥ 全期月度報酬 %</h3>
+<button class="btn on" id="m2">2×</button><button class="btn" id="m1">1×</button>
+<div class="box sm"><canvas id="bar"></canvas></div></div>
+
+<div class="pan"><h3>⑦ 全期交易軌跡(▲=叢集 · ⚠=3檔全叢集 · ⟲=即時延伸月)</h3>
+<div class="scroll"><table><thead><tr><th>持有月</th><th>持股</th><th>1× 淨月報酬</th><th>2× 淨月報酬</th></tr></thead><tbody>${trows}</tbody></table></div></div>
+
+<div class="pan"><h3>⑧ 2× 三年資金曲線預估(MC 扇形,20k 路徑,自動用最新月報酬重算)</h3>
+<div class="box sm"><canvas id="fan"></canvas></div>
+<div class="sub">中位 ${MC.median}× /3年 · 輸入 ${MC.n_months_input} 個月 · ${MC.note}</div></div>
+
+<h2>風險評估</h2>
+<div class="pan"><div class="grid g4">
+<div class="c"><div class="k">2× 腰斬機率(權益回撤>50%)</div><div class="v r">${Fp(MC.p_halve)}</div><div class="n">月頻下界</div></div>
+<div class="c"><div class="k">2× 歸0機率(觸 −45% 斷頭障壁)</div><div class="v r">${Fp(MC.p_barrier45)}</div><div class="n">月頻下界;隔夜跳空另計</div></div>
+<div class="c"><div class="k">最差單月(2×)</div><div class="v r">${Fp(st.worst_month2)}</div><div class="n">歷史實跑</div></div>
+<div class="c"><div class="k">月中槓桿最高漂移</div><div class="v a">${st.max_drift}×</div><div class="n">跌途中倉位自動變重</div></div></div>
+<div class="redline">▸ <b>歷史 MDD 不是上限</b>:2× 日頻 −${(Math.abs(st.mdd2)*100).toFixed(1)}%(2025 關稅段)只是一條歷史路徑;13.5 年僅含兩次 −60% 級事件。</div>
+<div class="redline">▸ <b>勿在幣安永續上開 2×</b>:funding 對全倉位收(~13%/yr×2 ≈ −26pp/年名目,實測 CAGR 88%→55%)。此配置只有 IBKR 融資一種開法。</div>
+<div class="redline">▸ <b>6.5%/yr 為 IBKR 假設值</b>,實際利率依帳戶浮動,開倉前自查;裸賭注月(現 ${st.naked_months} 個)的隔夜跳空尾巴,MC 與日頻歷史都量不到。</div></div>
+<div class="foot">凍結歷史來源:Sharadar PIT 回測(pure2x 戰役,VPS 三重驗證,2026-07-03)。即時延伸:yfinance,決策即時記錄(不可能偷看未來=PIT)。成分清單每交易日自動核對(Wikipedia 主源/FMP 備援/失敗沿用快取), 變動記日期入檔;半導體叢集自動判定+記憶體/儲存手動名單。本頁為研究監控工具,非投資建議。</div>`;
+// ---- charts ----
+const GRID='#1a212c',DIM='#5a6573';
+let eqChart, from10=true;
+function drawEq(){
+  const cut = from10? labels.findIndex(d=>d>= new Date(Date.now()-315576e5).toISOString().slice(0,10)) : 0;
+  const lb=labels.slice(cut);
+  if(eqChart) eqChart.destroy();
+  eqChart=new Chart(document.getElementById('eq'),{type:'line',data:{labels:lb,datasets:[
+   {label:'1×',data:d1.slice(cut),borderColor:'#22d3a8',borderWidth:1.8,pointRadius:0,tension:.1},
+   {label:'2×(@6.5%)',data:d2.slice(cut),borderColor:'#f5b94a',borderWidth:1.8,pointRadius:0,tension:.1}]},
+   options:{responsive:true,maintainAspectRatio:false,animation:false,
+    plugins:{legend:{labels:{color:'#d7dee8',font:{size:11}}}},
+    scales:{y:{type:'logarithmic',grid:{color:GRID},ticks:{color:DIM}},x:{grid:{display:false},ticks:{color:DIM,maxTicksLimit:10}}}},
+   plugins:[{id:'tr',afterDatasetsDraw(c){const ctx=c.ctx;troughs.forEach(td=>{const i=lb.indexOf(td);if(i<0)return;
+     const m=c.getDatasetMeta(1).data[i];if(!m)return;ctx.beginPath();ctx.arc(m.x,m.y,4,0,7);ctx.fillStyle='#ef4455';ctx.fill();});}}]});
+}
+drawEq();
+document.getElementById('b10').onclick=()=>{from10=true;tog('b10','ball');drawEq()};
+document.getElementById('ball').onclick=()=>{from10=false;tog('ball','b10');drawEq()};
+function tog(a,b){document.getElementById(a).classList.add('on');document.getElementById(b).classList.remove('on')}
+let barChart,mode2=true;
+function drawBar(){const d=mode2?bar2:bar1;if(barChart)barChart.destroy();
+ barChart=new Chart(document.getElementById('bar'),{type:'bar',data:{labels:mlab,datasets:[{data:d,
+  backgroundColor:d.map(v=>v<0?'#ef4455':'rgba(34,211,168,.75)')}]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
+  scales:{y:{grid:{color:GRID},ticks:{color:DIM,callback:v=>v+'%'},title:{display:true,text:'%(已×100)',color:DIM}},
+   x:{grid:{display:false},ticks:{color:DIM,maxTicksLimit:14}}}}});}
+drawBar();
+document.getElementById('m2').onclick=()=>{mode2=true;tog('m2','m1');drawBar()};
+document.getElementById('m1').onclick=()=>{mode2=false;tog('m1','m2');drawBar()};
+new Chart(document.getElementById('fan'),{type:'line',data:{labels:[...Array(37).keys()],datasets:
+ [['p95','#4aa8f5'],['p75','#22d3a8'],['p50','#ffffff'],['p25','#f5b94a'],['p5','#ef4455']].map(([p,col])=>({label:p,data:MC.fan[p.slice(1)],borderColor:col,borderWidth:p==='p50'?2.2:1.3,pointRadius:0}))},
+ options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:'#d7dee8',font:{size:10.5}}}},
+ scales:{y:{type:'logarithmic',grid:{color:GRID},ticks:{color:DIM,callback:v=>v+'×'}},x:{grid:{display:false},ticks:{color:DIM},title:{display:true,text:'月',color:DIM}}}}});
+}).catch(e=>{document.getElementById('sub').textContent='資料載入失敗:'+e;});
+</script></body></html>
